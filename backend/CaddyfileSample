@@ -1,0 +1,65 @@
+# =======================================================
+# 1. STATIC HOME (example.com)
+# =======================================================
+example.com {
+    # Permanent redirect while preserving path and query string
+    redir https://meteo.example.com{uri} permanent
+}
+
+# =======================================================
+# 2. FRONTEND APP (meteo.example.com)
+# =======================================================
+meteo.example.com {
+    encode gzip zstd  # Added zstd for better compression if supported
+    
+    # Security Headers
+    header {
+        # Disable server identification (optional, security by obscurity)
+        -Server
+
+        X-Frame-Options "DENY" 
+        X-Content-Type-Options "nosniff" 
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" # Added 'preload'
+        Referrer-Policy "strict-origin-when-cross-origin" 
+        
+        # FEATURE POLICY / PERMISSIONS POLICY
+        # Block access to unnecessary sensors and hardware
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+        # ENHANCED CSP
+        Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://apimeteo.example.com"
+    }
+    
+    root * /srv/frontend 
+    file_server
+    try_files {path} /index.html 
+}
+
+# =======================================================
+# 3. BACKEND API (apimeteo.example.com)
+# =======================================================
+apimeteo.example.com {
+    encode gzip zstd
+
+    # Centralized CORS handling
+    # Define CORS headers in a block so they can be reused
+    header {
+        Access-Control-Allow-Origin "https://meteo.example.com"
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, Authorization"
+        defer # Important: apply these headers even if the backend returns an error
+    }
+
+    # Intercept OPTIONS (preflight) requests and immediately return 204
+    @options {
+        method OPTIONS
+    }
+    respond @options 204
+
+    # Reverse Proxy to PostgREST
+    reverse_proxy postgrest:3000 {
+        # Hide PostgREST internal headers for security
+        header_down -Server
+        header_down -Content-Location
+    }
+}

@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+  # ========================
+  # WEB SERVER & PROXY (Caddy)
+  # ========================
+  caddy:
+    image: caddy:latest
+    container_name: meteo_web
+    restart: unless-stopped
+    ports:
+      - "80:80"   # CALL CERTIFICATE SSL
+      - "443:443" # ALL TRAFFIC
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../frontend_build:/srv/frontend:ro  # YOUR FILES SVELTE
+      - caddy_data:/data
+    networks:
+      - meteo_net
+    depends_on:
+      - postgrest
+
+  # ========================
+  # DATABASE
+  # ========================
+  db:
+    image: timescale/timescaledb:latest-pg16
+    env_file: .env
+    container_name: meteo_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db_data:/var/lib/postgresql/data     # MANAGED VOLUME (Safer on VPS)
+      - ./db/init:/docker-entrypoint-initdb.d # SCRIPT SQL
+    networks:
+      - meteo_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================
+  # API (PostgREST)
+  # ========================
+  postgrest:
+    image: postgrest/postgrest:latest
+    env_file: .env
+    container_name: meteo_postgrest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: "postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
+      PGRST_DB_SCHEMA: "public"
+      PGRST_DB_ANON_ROLE: "web_anon"
+      PGRST_SERVER_PORT: "3000"
+     
+    networks:
+      - meteo_net
+
+  # ========================
+  # (Telegraf)
+  # ========================
+  telegraf:
+    build:
+      context: .
+      dockerfile: dockerfile.telegraf
+    env_file: .env
+    container_name: meteo_telegraf
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - MQTT_BROKER=${HMQ_HOST}
+      - MQTT_USER=${HMQ_USER}
+      - MQTT_PASS=${HMQ_PASS}
+      - MQTT_TOPIC=${HMQ_TOPIC}
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./telegraf/scripts:/etc/telegraf/scripts
+    networks:
+      - meteo_net
+
+networks:
+  meteo_net:
+
+volumes:
+  db_data:
+  caddy_data:

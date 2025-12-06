@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+  # ========================
+  # DATABASE: TimescaleDB
+  # ========================
+  db:
+    image: timescale/timescaledb:latest-pg16
+    env_file:
+      - .env
+    container_name: meteo_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    volumes:
+      - ./db/data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - meteo_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========================
+  # API REST: PostgREST
+  # ========================
+  postgrest:
+    image: postgrest/postgrest:latest
+    env_file:
+      - .env
+    container_name: meteo_postgrest
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: "postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}"
+      PGRST_DB_SCHEMA: "public"
+      PGRST_DB_ANON_ROLE: "web_anon"
+      PGRST_SERVER_PORT: "3000"
+    ports:
+      - "3000:3000"
+    networks:
+      - meteo_net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:3000"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ========================
+  # TELEMETRIA: Telegraf
+  # ========================
+  telegraf:
+    build:
+      context: .
+      dockerfile: dockerfile.telegraf
+    env_file:
+      - .env
+    container_name: meteo_telegraf
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: /bin/sh -c "sleep 15 && telegraf"
+    environment:
+      - HOSTNAME=telegraf
+      - MQTT_BROKER=${HMQ_HOST}
+      - MQTT_USER=${HMQ_USER}
+      - MQTT_PASS=${HMQ_PASS}
+      - MQTT_TOPIC=${HMQ_TOPIC}
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./telegraf/scripts:/etc/telegraf/scripts
+    networks:
+      - meteo_net
+
+# ========================
+# NETWORKS AND VOLUMES
+# ========================
+networks:
+  meteo_net:
+    driver: bridge
+
+volumes:
+  db_data:

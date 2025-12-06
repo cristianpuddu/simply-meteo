@@ -1,0 +1,36 @@
+# --- IDE & OS (Generale) ---
+.DS_Store
+.vscode/
+*.sw?
+*.suo
+.idea/
+
+# --- Logs Generali ---
+*.log
+**/logs/
+
+# --- Environment Variables (CRITICO) ---
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# --- Node / Frontend (Svelte/Vite) ---
+**/node_modules/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+# Ignora la cartella di build dentro frontend
+frontend/dist/
+# Ignora eventuali file di coverage test
+coverage/
+
+# --- Backend / Docker ---
+# Ignora i dati del DB (spesso montati come volumi)
+backend/db/data/
+# Ignora il Caddyfile reale (ma mantieni CaddyfileSample)
+backend/Caddyfile
+# Se usi volumi docker generici
+**/volumes/
+
